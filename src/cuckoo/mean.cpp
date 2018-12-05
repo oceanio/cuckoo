@@ -11,7 +11,7 @@
 int main(int argc, char **argv) {
   u32 nthreads = 1;
   u32 ntrims = EDGEBITS > 30 ? 96 : 68;
-  u32 nonce = 0;
+  u64 nonce = 0;
   u32 range = 1;
 #ifdef SAVEEDGES
   bool showcycle = 1;
@@ -43,7 +43,7 @@ int main(int argc, char **argv) {
           sscanf(optarg+2*i, "%2hhx", header+i);
         break;
       case 'n':
-        nonce = atoi(optarg);
+        nonce = strtoull(optarg, NULL, 10);
         break;
       case 'r':
         range = atoi(optarg);
@@ -59,9 +59,9 @@ int main(int argc, char **argv) {
         break;
     }
   }
-  printf("Looking for %d-cycle on cuckoo%d(\"%s\",%d", PROOFSIZE, NODEBITS, header, nonce);
+  printf("Looking for %d-cycle on cuckoo%d(\"%s\",%ld", PROOFSIZE, NODEBITS, header, nonce);
   if (range > 1)
-    printf("-%d", nonce+range-1);
+    printf("-%ld", nonce+range-1);
   printf(") with 50%% edges\n");
 
   solver_ctx ctx(nthreads, ntrims, allrounds, showcycle);

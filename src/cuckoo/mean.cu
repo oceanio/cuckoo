@@ -17,6 +17,7 @@
 #include "cuckoo.h"
 #include "../crypto/siphash.cuh"
 #include "../crypto/blake2.h"
+#include "../crypto/base64.h"
 
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -559,9 +560,10 @@ struct solver_ctx {
     mutatenonce = mutate_nonce;
   }
 
-  void setheadernonce(char * const headernonce, const u32 len, const u32 nonce) {
+  void setheadernonce(char * const headernonce, const u32 len, const u64 nonce) {
     if (mutatenonce) {
-      ((u32 *)headernonce)[len/sizeof(u32)-1] = htole32(nonce); // place nonce at end
+      // The KeyHash takes 44 byte - put nonce at 45-56
+      base64_encode_nonce(nonce, headernonce + 44);
     }
     setheader(headernonce, len, &trimmer.sipkeys);
     sols.clear();
@@ -681,7 +683,7 @@ typedef solver_ctx SolverCtx;
 CALL_CONVENTION int run_solver(SolverCtx* ctx,
                                char* header,
                                int header_length,
-                               u32 nonce,
+                               u64 nonce,
                                u32 range,
                                SolverSolutions *solutions,
                                SolverStats *stats
@@ -713,7 +715,7 @@ CALL_CONVENTION int run_solver(SolverCtx* ctx,
   for (u32 r = 0; r < range; r++) {
     time0 = timestamp();
     ctx->setheadernonce(header, header_length, nonce + r);
-    print_log("nonce %d k0 k1 k2 k3 %llx %llx %llx %llx\n", nonce+r, ctx->trimmer.sipkeys.k0, ctx->trimmer.sipkeys.k1, ctx->trimmer.sipkeys.k2, ctx->trimmer.sipkeys.k3);
+    print_log("nonce %ld k0 k1 k2 k3 %llx %llx %llx %llx\n", nonce+r, ctx->trimmer.sipkeys.k0, ctx->trimmer.sipkeys.k1, ctx->trimmer.sipkeys.k2, ctx->trimmer.sipkeys.k3);
     u32 nsols = ctx->solve();
     time1 = timestamp();
     timems = (time1 - time0) / 1000000;
@@ -807,7 +809,7 @@ CALL_CONVENTION void fill_default_params(SolverParams* params) {
 
 int main(int argc, char **argv) {
   trimparams tp;
-  u32 nonce = 0;
+  u64 nonce = 0;
   u32 range = 1;
   u32 device = 0;
   char header[HEADERLEN];
@@ -839,7 +841,7 @@ int main(int argc, char **argv) {
           sscanf(optarg+2*i, "%2hhx", header+i); // hh specifies storage of a single byte
         break;
       case 'n':
-        nonce = atoi(optarg);
+        nonce = strtoull(optarg, NULL, 10);
         break;
       case 'm':
         params.ntrims = atoi(optarg) & -2; // make even as required by solve()
@@ -880,9 +882,9 @@ int main(int argc, char **argv) {
   for (dunit=0; dbytes >= 10240; dbytes>>=10,dunit++) ;
   print_log("%s with %d%cB @ %d bits x %dMHz\n", prop.name, (u32)dbytes, " KMGT"[dunit], prop.memoryBusWidth, prop.memoryClockRate/1000);
 
-  print_log("Looking for %d-cycle on cuckoo%d(\"%s\",%d", PROOFSIZE, NODEBITS, header, nonce);
+  print_log("Looking for %d-cycle on cuckoo%d(\"%s\",%ld", PROOFSIZE, NODEBITS, header, nonce);
   if (range > 1)
-    print_log("-%d", nonce+range-1);
+    print_log("-%ld", nonce+range-1);
   print_log(") with 50%% edges, %d*%d buckets, %d trims, and %d thread blocks.\n", NX, NY, tp.ntrims, NX);
 
   SolverCtx* ctx = create_solver_ctx(&params);

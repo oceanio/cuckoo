@@ -15,7 +15,7 @@
 int main(int argc, char **argv) {
   int nthreads = 1;
   int ntrims   = 2 + (PART_BITS+3)*(PART_BITS+4);
-  int nonce = 0;
+  u64 nonce = 0;
   int range = 1;
   char header[HEADERLEN];
   unsigned len;
@@ -38,7 +38,7 @@ int main(int argc, char **argv) {
           sscanf(optarg+2*i, "%2hhx", header+i);
         break;
       case 'n':
-        nonce = atoi(optarg);
+        nonce = strtoull(optarg, NULL, 10);
         break;
       case 'r':
         range = atoi(optarg);
@@ -51,9 +51,9 @@ int main(int argc, char **argv) {
         break;
     }
   }
-  printf("Looking for %d-cycle on cuckoo%d(\"%s\",%d", PROOFSIZE, EDGEBITS+1, header, nonce);
+  printf("Looking for %d-cycle on cuckoo%d(\"%s\",%ld", PROOFSIZE, EDGEBITS+1, header, nonce);
   if (range > 1)
-    printf("-%d", nonce+range-1);
+    printf("-%ld", nonce+range-1);
   printf(") with 50%% edges, %d trims, %d threads\n", ntrims, nthreads);
 
   u64 edgeBytes = NEDGES/8, nodeBytes = TWICE_ATOMS*sizeof(atwice);

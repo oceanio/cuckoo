@@ -8,6 +8,7 @@
 
 #include "cuckoo.h"
 #include "../crypto/siphashxN.h"
+#include "../crypto/base64.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
@@ -223,7 +224,7 @@ public:
   twice_set *nonleaf;
   cuckoo_hash *cuckoo;
   word_t (*sols)[PROOFSIZE];
-  u32 nonce;
+  u64 nonce;
   u32 maxsols;
   au32 nsols;
   u32 nthreads;
@@ -240,9 +241,10 @@ public:
     assert(sols != 0);
     nsols = 0;
   }
-  void setheadernonce(char* headernonce, const u32 len, const u32 nce) {
+  void setheadernonce(char* headernonce, const u32 len, const u64 nce) {
     nonce = nce;
-    ((u32 *)headernonce)[len/sizeof(u32)-1] = htole32(nonce); // place nonce at end
+    // The KeyHash takes 44 byte - put nonce at 45-56
+    base64_encode_nonce(nonce, headernonce + 44);
     setheader(headernonce, len, &sip_keys);
     alive->clear(); // set all edges to be alive
     nsols = 0;
@@ -281,7 +283,7 @@ public:
   void count_node_deg(const u32 id, const u32 uorv, const u32 part) {
     alignas(64) u64 indices[NSIPHASH];
     alignas(64) u64 hashes[NPREFETCH];
-  
+
     memset(hashes, 0, NPREFETCH * sizeof(u64)); // allow many nonleaf->set(0) to reduce branching
     u32 nidx = 0;
     for (word_t block = id*64; block < NEDGES; block += nthreads*64) {
@@ -321,7 +323,7 @@ public:
   void kill_leaf_edges(const u32 id, const u32 uorv, const u32 part) {
     alignas(64) u64 indices[NPREFETCH];
     alignas(64) u64 hashes[NPREFETCH];
-  
+
     memset(hashes, 0, NPREFETCH * sizeof(u64)); // allow many nonleaf->test(0) to reduce branching
     u32 nidx = 0;
     for (word_t block = id*64; block < NEDGES; block += nthreads*64) {
@@ -425,7 +427,7 @@ void *worker(void *vp) {
   }
   if (tp->id == 0) {
     u32 load = (u32)(100LL * alive->count() / CUCKOO_SIZE);
-    printf("nonce %d: %d trims completed  final load %d%%\n", ctx->nonce, ctx->ntrims, load);
+    printf("nonce %ld: %d trims completed  final load %d%%\n", ctx->nonce, ctx->ntrims, load);
     if (load >= 90) {
       printf("overloaded! exiting...");
       pthread_exit(NULL);

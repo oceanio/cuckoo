@@ -8,6 +8,7 @@
 #include <string.h>
 #include "cuckoo.h"
 #include "../crypto/siphash.cuh"
+#include "../crypto/base64.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -152,8 +153,9 @@ public:
   cuckoo_ctx(const u32 n_threads) {
     nthreads = n_threads;
   }
-  void setheadernonce(char* headernonce, const u32 nonce) {
-    ((u32 *)headernonce)[HEADERLEN/sizeof(u32)-1] = htole32(nonce); // place nonce at end
+  void setheadernonce(char* headernonce, const u64 nonce) {
+    // The KeyHash takes 44 byte - put nonce at 45-56
+    base64_encode_nonce(nonce, headernonce + 44);
     setheader(headernonce, HEADERLEN, &sip_keys);
   }
 };
@@ -219,7 +221,7 @@ int main(int argc, char **argv) {
   int nthreads = 16384;
   int trims   = 32;
   int tpb = 0;
-  int nonce = 0;
+  u64 nonce = 0;
   int range = 1;
   const char *header = "";
   int c;
@@ -229,7 +231,7 @@ int main(int argc, char **argv) {
         header = optarg;
         break;
       case 'n':
-        nonce = atoi(optarg);
+        nonce = strtoull(optarg, NULL, 10);
         break;
       case 'm':
         trims = atoi(optarg);
@@ -248,9 +250,9 @@ int main(int argc, char **argv) {
   if (!tpb) // if not set, then default threads per block to roughly square root of threads
     for (tpb = 1; tpb*tpb < nthreads; tpb *= 2) ;
 
-  printf("Looking for %d-cycle on cuckoo%d(\"%s\",%d", PROOFSIZE, NODEBITS, header, nonce);
+  printf("Looking for %d-cycle on cuckoo%d(\"%s\",%ld", PROOFSIZE, NODEBITS, header, nonce);
   if (range > 1)
-    printf("-%d", nonce+range-1);
+    printf("-%ld", nonce+range-1);
   printf(") with 50%% edges, %d trims, %d threads %d per block\n", trims, nthreads, tpb);
 
   cuckoo_ctx ctx(nthreads);
@@ -291,7 +293,7 @@ int main(int argc, char **argv) {
         }
       }
     }
-  
+
     u64 *bits;
     bits = (u64 *)calloc(NEDGES/64, sizeof(u64));
     assert(bits != 0);
@@ -305,14 +307,14 @@ int main(int argc, char **argv) {
     for (int i = 0; i < NEDGES/64; i++)
       cnt += __builtin_popcountll(~bits[i]);
     u32 load = (u32)(100L * cnt / CUCKOO_SIZE);
-    printf("nonce %d: %d trims completed in %.3f seconds final load %d%%\n",
+    printf("nonce %ld: %d trims completed in %.3f seconds final load %d%%\n",
             nonce+r, trims, duration / 1000.0f, load);
-  
+
     if (load >= 90) {
       printf("overloaded! exiting...");
       exit(0);
     }
-  
+
     cuckoo_hash &cuckoo = *(new cuckoo_hash());
     word_t us[MAXPATHLEN], vs[MAXPATHLEN];
     for (word_t block = 0; block < NEDGES; block += 64) {
