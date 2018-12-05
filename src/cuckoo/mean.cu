@@ -649,6 +649,7 @@ struct solver_ctx {
 // arbitrary length of header hashed into siphash key
 #define HEADERLEN 80
 
+#ifndef SHAREDLIB
 int main(int argc, char **argv) {
   trimparams tp;
   u32 nonce = 0;
@@ -768,3 +769,66 @@ int main(int argc, char **argv) {
   printf("%d total solutions\n", sumnsols);
   return 0;
 }
+#else
+trimparams tp;
+solver_ctx* ptr_ctx = NULL;
+
+void cuckoo_init(int device) {
+  cudaDeviceProp prop;
+  checkCudaErrors(cudaGetDeviceProperties(&prop, device));
+  assert(tp.genA.tpb <= prop.maxThreadsPerBlock);
+  assert(tp.genB.tpb <= prop.maxThreadsPerBlock);
+  assert(tp.trim.tpb <= prop.maxThreadsPerBlock);
+  // assert(tp.tailblocks <= prop.threadDims[0]);
+  assert(tp.tail.tpb <= prop.maxThreadsPerBlock);
+  assert(tp.recover.tpb <= prop.maxThreadsPerBlock);
+  u64 dbytes = prop.totalGlobalMem;
+  int dunit;
+  for (dunit=0; dbytes >= 10240; dbytes>>=10,dunit++) ;
+  printf("%s with %d%cB @ %d bits x %dMHz\n", prop.name, (u32)dbytes, " KMGT"[dunit], prop.memoryBusWidth, prop.memoryClockRate/1000);
+  cudaSetDevice(device);
+
+  solver_ctx ctx(tp);
+
+  u64 bytes = ctx.trimmer->globalbytes();
+  int unit;
+  for (unit=0; bytes >= 10240; bytes>>=10,unit++) ;
+  printf("Using %d%cB of global memory.\n", (u32)bytes, " KMGT"[unit]);
+
+  ptr_ctx = ctx;
+}
+
+void cuckoo_solve(int device, char *header, int nonce, int range) {
+  printf("Looking for %d-cycle on cuckoo%d(\"%s\",%d", PROOFSIZE, NODEBITS, header, nonce);
+  if (range > 1)
+    printf("-%d", nonce+range-1);
+  printf(") with 50%% edges, %d*%d buckets, %d trims, and %d thread blocks.\n", NX, NY, tp.ntrims, NX);
+
+  u32 sumnsols = 0;
+  for (int r = 0; r < range; r++) {
+    ptr_ctx->setheadernonce(header, sizeof(header), nonce + r);
+    printf("nonce %d k0 k1 k2 k3 %llx %llx %llx %llx\n", nonce+r, ptr_ctx->trimmer->sipkeys.k0, ptr_ctx->trimmer->sipkeys.k1, ptr_ctx->trimmer->sipkeys.k2, ptr_ctx->trimmer->sipkeys.k3);
+    u32 nsols = ptr_ctx->solve();
+    for (unsigned s = 0; s < nsols; s++) {
+      printf("Solution");
+      u32* prf = &ptr_ctx->sols[s * PROOFSIZE];
+      for (u32 i = 0; i < PROOFSIZE; i++)
+        printf(" %jx", (uintmax_t)prf[i]);
+      printf("\n");
+      int pow_rc = verify(prf, &ptr_ctx->trimmer->sipkeys);
+      if (pow_rc == POW_OK) {
+        printf("Verified with cyclehash ");
+        unsigned char cyclehash[32];
+        blake2b((void *)cyclehash, sizeof(cyclehash), (const void *)prf, sizeof(proof), 0, 0);
+        for (int i=0; i<32; i++)
+          printf("%02x", cyclehash[i]);
+        printf("\n");
+      } else {
+        printf("FAILED due to %s\n", errstr[pow_rc]);
+      }
+    }
+    sumnsols += nsols;
+  }
+  printf("%d total solutions\n", sumnsols);
+}
+#endif

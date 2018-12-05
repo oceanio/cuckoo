@@ -50,3 +50,7 @@ lcuda29:	../crypto/siphash.cuh lean.cu Makefile
 
 cuda29:		../crypto/siphash.cuh mean.cu Makefile
 	nvcc -o $@ -DEDGEBITS=29 -arch sm_35 mean.cu $(BLAKE_2B_SRC)
+
+scuda29:   ../crypto/siphash.cuh mean.cu Makefile
+	nvcc -o $@ -DEDGEBITS=29 -DSHAREDLIB -shared -Xcompiler="--std=c++0x -fPIC" -arch sm_35 mean.cu $(BLAKE_2B_SRC)
+
