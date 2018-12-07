@@ -374,6 +374,7 @@ struct edgetrimmer {
     sizeA = ROW_EDGES_A * NX * (tp.expand > 0 ? sizeof(u32) : sizeof(uint2));
     sizeB = ROW_EDGES_B * NX * (tp.expand > 1 ? sizeof(u32) : sizeof(uint2));
     const size_t bufferSize = sizeA + sizeB;
+    printf("buffer size %ld\n", bufferSize);
     checkCudaErrors(cudaMalloc((void**)&bufferA, bufferSize));
     bufferB  = bufferA + sizeA / sizeof(ulonglong4);
     bufferAB = bufferA + sizeB / sizeof(ulonglong4);
@@ -773,7 +774,7 @@ int main(int argc, char **argv) {
 #else
 trimparams tp;
 
-extern "C" void cuckoo_init(int device, int expand) {
+extern "C" char* cuckoo_init(int device, int expand) {
   tp.expand = expand;
 
   cudaDeviceProp prop;
@@ -789,12 +790,18 @@ extern "C" void cuckoo_init(int device, int expand) {
   for (dunit=0; dbytes >= 10240; dbytes>>=10,dunit++) ;
   printf("%s with %d%cB @ %d bits x %dMHz\n", prop.name, (u32)dbytes, " KMGT"[dunit], prop.memoryBusWidth, prop.memoryClockRate/1000);
   cudaSetDevice(device);
+
+  solver_ctx* pctx = NULL;
+  pctx = new solver_ctx(tp);
+  return (char*)pctx;
 }
 
-extern "C" int cuckoo_solve(int device, char *header, int header_len, int nonce, int range, unsigned int *buffer, int *hashrate) {
-  solver_ctx ctx(tp);
+extern "C" int cuckoo_solve(char* solver, char *header, int header_len, int nonce, int range, unsigned int *buffer, int *hashrate) {
+  cudaDeviceSynchronize();
 
-  u64 bytes = ctx.trimmer->globalbytes();
+  solver_ctx* pctx = (solver_ctx*)solver;
+
+  u64 bytes = pctx->trimmer->globalbytes();
   int unit;
   for (unit=0; bytes >= 10240; bytes>>=10,unit++) ;
   printf("Using %d%cB of global memory.\n", (u32)bytes, " KMGT"[unit]);
@@ -807,20 +814,20 @@ extern "C" int cuckoo_solve(int device, char *header, int header_len, int nonce,
   u32 found = 0;
   u32 sumnsols = 0;
   for (int r = 0; r < range; r++) {
-    ctx.setheadernonce(header, header_len, nonce + r);
-    printf("nonce %d k0 k1 k2 k3 %lx %lx %lx %lx\n", nonce+r, ctx.trimmer->sipkeys.k0, ctx.trimmer->sipkeys.k1, ctx.trimmer->sipkeys.k2, ctx.trimmer->sipkeys.k3);
-    u32 nsols = ctx.solve();
-    *hashrate = ctx.search_rate;
+    pctx->setheadernonce(header, header_len, nonce + r);
+    printf("nonce %d k0 k1 k2 k3 %lx %lx %lx %lx\n", nonce+r, pctx->trimmer->sipkeys.k0, pctx->trimmer->sipkeys.k1, pctx->trimmer->sipkeys.k2, pctx->trimmer->sipkeys.k3);
+    u32 nsols = pctx->solve();
+    *hashrate = pctx->search_rate;
     for (unsigned s = 0; s < nsols; s++) {
       found = 1;
       printf("Solution");
-      u32* prf = &ctx.sols[s * PROOFSIZE];
+      u32* prf = &pctx->sols[s * PROOFSIZE];
       for (u32 i = 0; i < PROOFSIZE; i++) {
         printf(" %jx", (uintmax_t)prf[i]);
         buffer[i] = prf[i];
       }
       printf("\n");
-      int pow_rc = verify(prf, &ctx.trimmer->sipkeys);
+      int pow_rc = verify(prf, &pctx->trimmer->sipkeys);
       if (pow_rc == POW_OK) {
         printf("Verified with cyclehash ");
         unsigned char cyclehash[32];
