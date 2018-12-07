@@ -525,11 +525,15 @@ struct solver_ctx {
   std::vector<u32> sols; // concatenation of all proof's indices
   u32 us[MAXPATHLEN];
   u32 vs[MAXPATHLEN];
+  u32 search_rate;
+  u32 cycles;
 
   solver_ctx(const trimparams tp) {
     trimmer = new edgetrimmer(tp);
     edges   = new uint2[MAXEDGES];
     cuckoo  = new cuckoo_hash();
+    search_rate = 0;
+    cycles = 0;
   }
 
   void setheadernonce(char * const headernonce, const u32 len, const u32 nonce) {
@@ -594,6 +598,7 @@ struct solver_ctx {
         for (nu -= min, nv -= min; us[nu] != vs[nv]; nu++, nv++) ;
         const u32 len = nu + nv + 1;
         printf("%4d-cycle found\n", len);
+        cycles ++;
         if (len == PROOFSIZE)
           solution(us, nu, vs, nv);
         // if (len == 2) printf("edge %x %x\n", edge.x, edge.y);
@@ -633,6 +638,9 @@ struct solver_ctx {
     gettimeofday(&time1, 0);
     timems2 = (time1.tv_sec-time0.tv_sec)*1000 + (time1.tv_usec-time0.tv_usec)/1000;
     printf("findcycles edges %d time %d ms total %d ms\n", nedges, timems2, timems+timems2);
+
+    search_rate = cycles * 1000 / timems+timems2;
+
     return sols.size() / PROOFSIZE;
   }
 };
@@ -642,6 +650,7 @@ struct solver_ctx {
 // arbitrary length of header hashed into siphash key
 #define HEADERLEN 80
 
+#ifndef SHAREDLIB
 int main(int argc, char **argv) {
   trimparams tp;
   u32 nonce = 0;
@@ -761,3 +770,72 @@ int main(int argc, char **argv) {
   printf("%d total solutions\n", sumnsols);
   return 0;
 }
+#else
+trimparams tp;
+
+extern "C" void cuckoo_init(int device, int expand) {
+  tp.expand = expand;
+
+  cudaDeviceProp prop;
+  checkCudaErrors(cudaGetDeviceProperties(&prop, device));
+  assert(tp.genA.tpb <= prop.maxThreadsPerBlock);
+  assert(tp.genB.tpb <= prop.maxThreadsPerBlock);
+  assert(tp.trim.tpb <= prop.maxThreadsPerBlock);
+  // assert(tp.tailblocks <= prop.threadDims[0]);
+  assert(tp.tail.tpb <= prop.maxThreadsPerBlock);
+  assert(tp.recover.tpb <= prop.maxThreadsPerBlock);
+  u64 dbytes = prop.totalGlobalMem;
+  int dunit;
+  for (dunit=0; dbytes >= 10240; dbytes>>=10,dunit++) ;
+  printf("%s with %d%cB @ %d bits x %dMHz\n", prop.name, (u32)dbytes, " KMGT"[dunit], prop.memoryBusWidth, prop.memoryClockRate/1000);
+  cudaSetDevice(device);
+}
+
+extern "C" int cuckoo_solve(int device, char *header, int header_len, int nonce, int range, unsigned int *buffer, int *hashrate) {
+  solver_ctx ctx(tp);
+
+  u64 bytes = ctx.trimmer->globalbytes();
+  int unit;
+  for (unit=0; bytes >= 10240; bytes>>=10,unit++) ;
+  printf("Using %d%cB of global memory.\n", (u32)bytes, " KMGT"[unit]);
+  
+  printf("Looking for %d-cycle on cuckoo%d(\"%s\",%d", PROOFSIZE, NODEBITS, header, nonce);
+  if (range > 1)
+    printf("-%d", nonce+range-1);
+  printf(") with 50%% edges, %d*%d buckets, %d trims, and %d thread blocks.\n", NX, NY, tp.ntrims, NX);
+
+  u32 found = 0;
+  u32 sumnsols = 0;
+  for (int r = 0; r < range; r++) {
+    ctx.setheadernonce(header, header_len, nonce + r);
+    printf("nonce %d k0 k1 k2 k3 %lx %lx %lx %lx\n", nonce+r, ctx.trimmer->sipkeys.k0, ctx.trimmer->sipkeys.k1, ctx.trimmer->sipkeys.k2, ctx.trimmer->sipkeys.k3);
+    u32 nsols = ctx.solve();
+    *hashrate = ctx.search_rate;
+    for (unsigned s = 0; s < nsols; s++) {
+      found = 1;
+      printf("Solution");
+      u32* prf = &ctx.sols[s * PROOFSIZE];
+      for (u32 i = 0; i < PROOFSIZE; i++) {
+        printf(" %jx", (uintmax_t)prf[i]);
+        buffer[i] = prf[i];
+      }
+      printf("\n");
+      int pow_rc = verify(prf, &ctx.trimmer->sipkeys);
+      if (pow_rc == POW_OK) {
+        printf("Verified with cyclehash ");
+        unsigned char cyclehash[32];
+        blake2b((void *)cyclehash, sizeof(cyclehash), (const void *)prf, sizeof(proof), 0, 0);
+        for (int i=0; i<32; i++)
+          printf("%02x", cyclehash[i]);
+        printf("\n");
+      } else {
+        printf("FAILED due to %s\n", errstr[pow_rc]);
+      }
+    }
+    sumnsols += nsols;
+  }
+  printf("%d total solutions\n", sumnsols);
+
+  return found;
+}
+#endif
