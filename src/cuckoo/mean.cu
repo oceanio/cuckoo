@@ -411,7 +411,7 @@ struct edgetrimmer {
     else
       SeedA<EDGES_A,   u32><<<tp.genA.blocks, tp.genA.tpb>>>(*dipkeys, bufferAB, (int *)indexesE);
   
-    checkCudaErrors(cudaDeviceSynchronize()); cudaEventRecord(stop, NULL);
+    cudaDeviceSynchronize(); cudaEventRecord(stop, NULL);
     cudaEventSynchronize(stop); cudaEventElapsedTime(&durationA, start, stop);
     cudaEventRecord(start, NULL);
   
@@ -425,7 +425,7 @@ struct edgetrimmer {
       SeedB<EDGES_A,   u32><<<tp.genB.blocks/2, tp.genB.tpb>>>(*dipkeys, (const   u32 *)(bufferAB+halfA), bufferA+halfA, (const int *)(indexesE+halfE), indexesE2+halfE);
     }
 
-    checkCudaErrors(cudaDeviceSynchronize()); cudaEventRecord(stop, NULL);
+    cudaDeviceSynchronize(); cudaEventRecord(stop, NULL);
     cudaEventSynchronize(stop); cudaEventElapsedTime(&durationB, start, stop);
     printf("Seeding completed in %.0f + %.0f ms\n", durationA, durationB);
   
