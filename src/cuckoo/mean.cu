@@ -798,8 +798,8 @@ extern "C" char* cuckoo_init(int device, int expand) {
   return (char*)pctx;
 }
 
-extern "C" int cuckoo_solve(char* solver, char *header, int header_len, int nonce, int range, unsigned int *buffer, int *hashrate) {
-  cudaDeviceSynchronize();
+extern "C" int cuckoo_solve(int device, char* solver, char *header, int header_len, int nonce, int range, unsigned int *buffer, int *hashrate) {
+  cudaSetDevice(device);
 
   solver_ctx* pctx = (solver_ctx*)solver;
 
@@ -821,7 +821,6 @@ extern "C" int cuckoo_solve(char* solver, char *header, int header_len, int nonc
     u32 nsols = pctx->solve();
     *hashrate = pctx->search_rate;
     for (unsigned s = 0; s < nsols; s++) {
-      found = 1;
       printf("Solution");
       u32* prf = &pctx->sols[s * PROOFSIZE];
       for (u32 i = 0; i < PROOFSIZE; i++) {
@@ -837,8 +836,10 @@ extern "C" int cuckoo_solve(char* solver, char *header, int header_len, int nonc
         for (int i=0; i<32; i++)
           printf("%02x", cyclehash[i]);
         printf("\n");
+        found = 1;
       } else {
         printf("FAILED due to %s\n", errstr[pow_rc]);
+        found = 0;
       }
     }
     sumnsols += nsols;
