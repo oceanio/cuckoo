@@ -393,27 +393,27 @@ struct edgetrimmer {
   }
   u32 trim() {
     cudaMemcpy(dt, this, sizeof(edgetrimmer), cudaMemcpyHostToDevice);
-    cudaEvent_t start, stop;
-    cudaEvent_t startall, stopall;
-    checkCudaErrors(cudaEventCreate(&startall)); checkCudaErrors(cudaEventCreate(&stopall));
-    checkCudaErrors(cudaEventCreate(&start)); checkCudaErrors(cudaEventCreate(&stop));
+    // cudaEvent_t start, stop;
+    // cudaEvent_t startall, stopall;
+    // checkCudaErrors(cudaEventCreate(&startall)); checkCudaErrors(cudaEventCreate(&stopall));
+    // checkCudaErrors(cudaEventCreate(&start)); checkCudaErrors(cudaEventCreate(&stop));
   
     cudaMemset(indexesE, 0, indexesSize);
     cudaMemset(indexesE2, 0, indexesSize);
     cudaMemcpy(dipkeys, &sipkeys, sizeof(sipkeys), cudaMemcpyHostToDevice);
   
     cudaDeviceSynchronize();
-    float durationA, durationB;
-    cudaEventRecord(start, NULL);
+    // float durationA, durationB;
+    // cudaEventRecord(start, NULL);
   
     if (tp.expand == 0)
       SeedA<EDGES_A, uint2><<<tp.genA.blocks, tp.genA.tpb>>>(*dipkeys, bufferAB, (int *)indexesE);
     else
       SeedA<EDGES_A,   u32><<<tp.genA.blocks, tp.genA.tpb>>>(*dipkeys, bufferAB, (int *)indexesE);
   
-    cudaDeviceSynchronize(); cudaEventRecord(stop, NULL);
-    cudaEventSynchronize(stop); cudaEventElapsedTime(&durationA, start, stop);
-    cudaEventRecord(start, NULL);
+    // cudaDeviceSynchronize(); cudaEventRecord(stop, NULL);
+    // cudaEventSynchronize(stop); cudaEventElapsedTime(&durationA, start, stop);
+    // cudaEventRecord(start, NULL);
   
     const u32 halfA = sizeA/2 / sizeof(ulonglong4);
     const u32 halfE = NX2 / 2;
@@ -425,9 +425,9 @@ struct edgetrimmer {
       SeedB<EDGES_A,   u32><<<tp.genB.blocks/2, tp.genB.tpb>>>(*dipkeys, (const   u32 *)(bufferAB+halfA), bufferA+halfA, (const int *)(indexesE+halfE), indexesE2+halfE);
     }
 
-    cudaDeviceSynchronize(); cudaEventRecord(stop, NULL);
-    cudaEventSynchronize(stop); cudaEventElapsedTime(&durationB, start, stop);
-    printf("Seeding completed in %.0f + %.0f ms\n", durationA, durationB);
+    // cudaDeviceSynchronize(); cudaEventRecord(stop, NULL);
+    // cudaEventSynchronize(stop); cudaEventElapsedTime(&durationB, start, stop);
+    // printf("Seeding completed in %.0f + %.0f ms\n", durationA, durationB);
   
     cudaMemset(indexesE, 0, indexesSize);
 
@@ -566,7 +566,7 @@ struct solver_ctx {
     cudaMemset(trimmer->indexesE2, 0, trimmer->indexesSize);
     Recovery<<<trimmer->tp.recover.blocks, trimmer->tp.recover.tpb>>>(*trimmer->dipkeys, trimmer->bufferA, (int *)trimmer->indexesE2);
     cudaMemcpy(&sols[sols.size()-PROOFSIZE], trimmer->indexesE2, PROOFSIZE * sizeof(u32), cudaMemcpyDeviceToHost);
-    checkCudaErrors(cudaDeviceSynchronize());
+    cudaDeviceSynchronize();
     qsort(&sols[sols.size()-PROOFSIZE], PROOFSIZE, sizeof(u32), nonce_cmp);
   }
 
@@ -625,6 +625,7 @@ struct solver_ctx {
     u32 timems,timems2;
     struct timeval time0, time1;
 
+    cycles = 0;
     gettimeofday(&time0, 0);
     u32 nedges = trimmer->trim();
     if (nedges > MAXEDGES) {
@@ -640,7 +641,8 @@ struct solver_ctx {
     timems2 = (time1.tv_sec-time0.tv_sec)*1000 + (time1.tv_usec-time0.tv_usec)/1000;
     printf("findcycles edges %d time %d ms total %d ms\n", nedges, timems2, timems+timems2);
 
-    search_rate = cycles * 1000 / timems+timems2;
+    if ((timems+timems2) != 0)
+      search_rate = cycles * 1000 / (timems+timems2);
 
     return sols.size() / PROOFSIZE;
   }
