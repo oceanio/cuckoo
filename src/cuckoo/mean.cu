@@ -566,7 +566,7 @@ struct solver_ctx {
     cudaMemset(trimmer->indexesE2, 0, trimmer->indexesSize);
     Recovery<<<trimmer->tp.recover.blocks, trimmer->tp.recover.tpb>>>(*trimmer->dipkeys, trimmer->bufferA, (int *)trimmer->indexesE2);
     cudaMemcpy(&sols[sols.size()-PROOFSIZE], trimmer->indexesE2, PROOFSIZE * sizeof(u32), cudaMemcpyDeviceToHost);
-    cudaDeviceSynchronize();
+    checkCudaErrors(cudaDeviceSynchronize());
     qsort(&sols[sols.size()-PROOFSIZE], PROOFSIZE, sizeof(u32), nonce_cmp);
   }
 
